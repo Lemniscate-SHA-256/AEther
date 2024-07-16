@@ -1,22 +1,38 @@
-from PyQt5.QtCore import QThread, Qt
+from PyQt5.QtCore import QThread, Qt, QObject, pyqtSignal, QSocketNotifier
 import numpy as np
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QSlider, QLabel
 import pyvista as pv
+from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
-class VisualizationThread(QThread):
+class WorkerThread(QThread):
+    finished = pyqtSignal()
+    socket_descriptor = 0
+
     def __init__(self, parent, plotter):
         super().__init__(parent)
         self.plotter = plotter
-        self.space_time_diagram = None
+        self.socket_notifier = None
 
     def run(self):
         # Add the space-time diagram visualization
         self.space_time_diagram = create_space_time_diagram()
         self.plotter.add_mesh(self.space_time_diagram, color='white', opacity=0.5)
 
+        # Create socket notifier in the worker thread
+        self.socket_notifier = QSocketNotifier(
+            self.socket_descriptor,  # Replace with your actual socket descriptor
+            QSocketNotifier.Read
+        )
+        self.socket_notifier.activated.connect(self.handle_socket_activation)
+
         # Start the PyQt5 event loop
         self.plotter.show()
+        self.finished.emit()
+
+    def handle_socket_activation(self):
+        # Handle socket events here
+        pass
 
     def update_time(self, value):
         # Update the visualization based on the new time value
@@ -27,31 +43,24 @@ class VisualizationThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.layout = QVBoxLayout()
+        self.plotter = pv.Plotter(off_screen=True)  # Create an instance of pv.Plotter with off_screen=True
+        self.visualization_thread = WorkerThread(self, self.plotter)
+        self.visualization_thread.finished.connect(self.on_thread_finished)
 
-        # Set up the GUI
-        self.setWindowTitle("Poincaré-Minkowski Space-time Visualizer")
-        self.setGeometry(100, 100, 800, 600)
+        # Create a QVTKRenderWindowInteractor instance and assign the Plotter instance to it
+        self.vtk_widget = QVTKRenderWindowInteractor(self)
+        self.plotter.ren_win.SetInteractor(self.vtk_widget)
 
-        # Create a widget for the visualization
-        self.plotter = pv.Plotter()
-        self.plotter.add_text("Poincaré-Minkowski Space-time", font_size=20)
-        self.plotter.show_grid()
-        self.visualization_thread = VisualizationThread(self, self.plotter)
+        # Add the vtk_widget to the layout
+        self.layout.addWidget(self.vtk_widget)
+        self.setLayout(self.layout)
+
         self.visualization_thread.start()
 
-        # Create a widget for the controls
-        self.controls_widget = ControlsWidget()
-
-        # Connect the controls to the visualization
-        self.controls_widget.time_slider.valueChanged.connect(self.visualization_thread.update_time)
-
-        # Set up the layout and add the visualization widget and controls
-        self.main_widget = QWidget()
-        self.layout = QVBoxLayout()
-        self.layout.addWidget(self.visualization_thread.plotter)
-        self.layout.addWidget(self.controls_widget)
-        self.main_widget.setLayout(self.layout)
-        self.setCentralWidget(self.main_widget)
+    def on_thread_finished(self):
+        self.visualization_thread.quit()
+        self.visualization_thread.wait()
 
 class ControlsWidget(QWidget):
     def __init__(self):
@@ -72,25 +81,6 @@ class ControlsWidget(QWidget):
         self.layout.addWidget(self.time_slider)
         self.layout.addWidget(self.time_label)
         self.setLayout(self.layout)
-
-class VisualizationWidget(QWidget):
-    def __init__(self, plotter):
-        super().__init__()
-
-        self.plotter = plotter
-
-        # Add the space-time diagram visualization
-        self.space_time_diagram = create_space_time_diagram()
-        self.plotter.add_mesh(self.space_time_diagram, color='white', opacity=0.5)
-
-        # Start the PyQt5 event loop
-        self.plotter.show()
-
-    def update_time(self, value):
-        # Update the visualization based on the new time value
-        # For example, update the position of the world lines in the space-time diagram
-        # ...
-        self.plotter.update()
 
 def create_space_time_diagram():
     # Define the parameters for the space-time diagram
