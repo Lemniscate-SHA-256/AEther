@@ -1,5 +1,5 @@
 # AEther
-Minkowski's Diagram Visualizer 
+Minkowski's Space-Time Visualizer 
 
 Timeline 
 
